@@ -7,7 +7,8 @@ const links = [
   { href: "/", label: "Guide Overview" },
   { href: "/modules/content", label: "Content Licensing" },
   { href: "/modules/opex-capex", label: "Spend Classification" },
-  { href: "/modules/Expense-Concepts", label: "Accounting Ops" }
+  { href: "/modules/Expense-Concepts", label: "Accounting Ops" },
+  { href: "/modules/royalty-expense", label: "Royalty Expense" }
 ];
 
 export default function Sidebar() {

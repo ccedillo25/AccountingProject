@@ -8,7 +8,6 @@ import {
   createAmortizationSchedule,
   createAmortizationSummary,
   generateAmortizationJournals,
-  parseStreamsInput,
   createVariableRoyaltySchedule,
   generateVariableRoyaltyJournals,
   generateVariableRoyaltyPayments,
@@ -24,6 +23,24 @@ const DEFAULT_START_DATE = "2020-12-01";
 const DEFAULT_END_DATE = "2023-12-31";
 const DEFAULT_RATE = 0.005;
 const DEFAULT_MG = 500000;
+
+const parseDateInput = (dateStr) => {
+  if (!dateStr) return null;
+  const parts = dateStr.split("-").map((part) => Number(part));
+  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) return null;
+  const [year, month, day] = parts;
+  return new Date(Date.UTC(year, month - 1, day));
+};
+
+const addMonths = (date, months) =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, date.getUTCDate()));
+
+const formatMonthLabel = (date) => {
+  if (!date) return "";
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+};
 
 const formatJournalRows = (rows) =>
   rows.map((row) => [
@@ -103,16 +120,62 @@ export default function ContentModulePage() {
 
   const [variableRate, setVariableRate] = useState(DEFAULT_RATE);
   const [variableStartDate, setVariableStartDate] = useState(DEFAULT_START_DATE);
-  const [variableStreams, setVariableStreams] = useState("1000000, 1200000, 950000, 1100000");
+  const [variableStreams, setVariableStreams] = useState([1000000, 1200000, 950000]);
   const [variableResult, setVariableResult] = useState(null);
   const [variableError, setVariableError] = useState("");
 
   const [mgAmount, setMgAmount] = useState(DEFAULT_MG);
   const [mgRate, setMgRate] = useState(DEFAULT_RATE);
   const [mgStartDate, setMgStartDate] = useState(DEFAULT_START_DATE);
-  const [mgStreams, setMgStreams] = useState("1000000, 1200000, 950000, 1100000");
+  const [mgStreams, setMgStreams] = useState([1000000, 1200000, 950000]);
   const [mgResult, setMgResult] = useState(null);
   const [mgError, setMgError] = useState("");
+
+  const variableMonthLabels = variableStreams.map((_, index) => {
+    const start = parseDateInput(variableStartDate);
+    if (!start) return `Month ${index + 1}`;
+    return formatMonthLabel(addMonths(start, index));
+  });
+
+  const mgMonthLabels = mgStreams.map((_, index) => {
+    const start = parseDateInput(mgStartDate);
+    if (!start) return `Month ${index + 1}`;
+    return formatMonthLabel(addMonths(start, index));
+  });
+
+  const handleVariableStreamChange = (index, value) => {
+    setVariableStreams((prev) => {
+      const next = [...prev];
+      const normalized = value.replace(/_/g, "");
+      next[index] = normalized === "" ? 0 : Number(normalized);
+      return next;
+    });
+  };
+
+  const handleMgStreamChange = (index, value) => {
+    setMgStreams((prev) => {
+      const next = [...prev];
+      const normalized = value.replace(/_/g, "");
+      next[index] = normalized === "" ? 0 : Number(normalized);
+      return next;
+    });
+  };
+
+  const addVariableMonth = () => {
+    setVariableStreams((prev) => [...prev, 0]);
+  };
+
+  const addMgMonth = () => {
+    setMgStreams((prev) => [...prev, 0]);
+  };
+
+  const removeVariableMonth = (index) => {
+    setVariableStreams((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const removeMgMonth = (index) => {
+    setMgStreams((prev) => prev.filter((_, idx) => idx !== index));
+  };
 
   const handleFixedCalculate = () => {
     const result = createAmortizationSchedule(fixedCost, fixedStartDate, fixedEndDate);
@@ -126,9 +189,14 @@ export default function ContentModulePage() {
   };
 
   const handleVariableCalculate = () => {
-    const streams = parseStreamsInput(variableStreams);
+    const streams = variableStreams.map((value) => Number(value || 0));
     if (!streams.length) {
-      setVariableError("Enter at least one monthly stream value (numbers only).");
+      setVariableError("Enter at least one monthly stream value.");
+      setVariableResult(null);
+      return;
+    }
+    if (streams.some((value) => Number.isNaN(value) || value < 0)) {
+      setVariableError("Monthly streams must be zero or a positive number.");
       setVariableResult(null);
       return;
     }
@@ -145,9 +213,14 @@ export default function ContentModulePage() {
   };
 
   const handleMgCalculate = () => {
-    const streams = parseStreamsInput(mgStreams);
+    const streams = mgStreams.map((value) => Number(value || 0));
     if (!streams.length) {
-      setMgError("Enter at least one monthly stream value (numbers only).");
+      setMgError("Enter at least one monthly stream value.");
+      setMgResult(null);
+      return;
+    }
+    if (streams.some((value) => Number.isNaN(value) || value < 0)) {
+      setMgError("Monthly streams must be zero or a positive number.");
       setMgResult(null);
       return;
     }
@@ -617,12 +690,37 @@ export default function ContentModulePage() {
                 </div>
               </div>
               <div>
-                <label htmlFor="variable-streams">Monthly Streams</label>
-                <textarea
-                  id="variable-streams"
-                  value={variableStreams}
-                  onChange={(event) => setVariableStreams(event.target.value)}
-                />
+                <label>Monthly Streams</label>
+                <div className="controls">
+                  {variableStreams.map((value, index) => (
+                    <div key={`${variableMonthLabels[index]}-${index}`} className="controls__row controls__row--inline">
+                      <div>
+                        <label>{variableMonthLabels[index]}</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={value}
+                          onChange={(event) => handleVariableStreamChange(index, event.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="sr-only">Remove month</label>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => removeVariableMonth(index)}
+                          disabled={variableStreams.length <= 1}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <button type="button" className="secondary" onClick={addVariableMonth}>
+                    Add Month
+                  </button>
+                </div>
               </div>
               <button type="button" onClick={handleVariableCalculate}>
                 Calculate Usage Expense
@@ -759,12 +857,37 @@ export default function ContentModulePage() {
                 </div>
               </div>
               <div>
-                <label htmlFor="mg-streams">Monthly Streams</label>
-                <textarea
-                  id="mg-streams"
-                  value={mgStreams}
-                  onChange={(event) => setMgStreams(event.target.value)}
-                />
+                <label>Monthly Streams</label>
+                <div className="controls">
+                  {mgStreams.map((value, index) => (
+                    <div key={`${mgMonthLabels[index]}-${index}`} className="controls__row controls__row--inline">
+                      <div>
+                        <label>{mgMonthLabels[index]}</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={value}
+                          onChange={(event) => handleMgStreamChange(index, event.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="sr-only">Remove month</label>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => removeMgMonth(index)}
+                          disabled={mgStreams.length <= 1}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <button type="button" className="secondary" onClick={addMgMonth}>
+                    Add Month
+                  </button>
+                </div>
               </div>
               <button type="button" onClick={handleMgCalculate}>
                 Calculate MG Usage

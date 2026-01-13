@@ -440,38 +440,6 @@ export default function AccountingOpsModulePage() {
       </section>
 
       <section className="card">
-        <h3 className="card__title">Journal entry flow (high-level)</h3>
-        <div className="tchart">
-          <div className="tchart__header">
-            <div className="tchart__cell">Debit</div>
-            <div className="tchart__cell">Credit</div>
-          </div>
-
-          <div className="tchart__row">
-            <div className="tchart__entry">
-              <div className="tchart__label">Expense / Prepaid / AR</div>
-              <div className="tchart__meta">Depends on workflow</div>
-            </div>
-            <div className="tchart__entry">
-              <div className="tchart__label">AP / AR / Payroll Liabilities / Cash</div>
-              <div className="tchart__meta">Source system / settlement</div>
-            </div>
-          </div>
-
-          <div className="tchart__row">
-            <div className="tchart__entry">
-              <div className="tchart__label">Liabilities cleared on payment</div>
-              <div className="tchart__meta">Settlement entry</div>
-            </div>
-            <div className="tchart__entry">
-              <div className="tchart__label">Cash</div>
-              <div className="tchart__meta">Bank activity</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="card">
         <h2 className="section-title">Pick the workflow</h2>
         <p className="section-subtitle">
           Choose the workflow to generate schedules, journal mappings, and reconciliation outputs.
