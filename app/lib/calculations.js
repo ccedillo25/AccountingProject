@@ -453,46 +453,72 @@ export const createExpenseCodingModel = ({
   }
 
   const serviceMonths = monthsBetweenInclusive(start, end);
-  const isMultiMonth = serviceMonths > 1;
-  let method = "expense";
-
-  if (prepaidPolicy === "force_prepaid") {
-    method = "prepaid";
-  } else if (prepaidPolicy === "force_expense") {
-    method = "expense";
-  } else {
-    method = isMultiMonth ? "prepaid" : "expense";
-  }
+  const fundDate = invoice;
+  const fundMonthEnd = fundDate ? monthEnd(fundDate) : null;
+  const postingDates = Array.from({ length: serviceMonths }, (_, index) =>
+    monthEnd(addMonths(start, index))
+  );
+  const fundBeforeService = fundMonthEnd ? fundMonthEnd <= start : false;
+  const fundAfterService = fundMonthEnd ? fundMonthEnd > end : false;
+  const fundWithinService = fundMonthEnd ? fundMonthEnd >= start && fundMonthEnd <= end : false;
+  const hasAccrualPhase = fundMonthEnd ? !fundBeforeService : true;
+  const hasPrepaidPhase = fundMonthEnd ? !fundAfterService : false;
+  const method = serviceMonths === 1 && fundWithinService
+    ? "expense"
+    : fundBeforeService
+      ? "prepaid"
+      : fundAfterService || !fundMonthEnd
+        ? "accrual"
+        : "accrual_prepaid";
 
   const schedule = [];
   let cumulative = 0;
 
-  if (method === "prepaid") {
-    const monthlyExpense = amount / serviceMonths;
-    for (let i = 0; i < serviceMonths; i += 1) {
-      const postingDate = monthEnd(addMonths(start, i));
-      let expense = monthlyExpense;
-      if (i === serviceMonths - 1) {
-        expense = amount - cumulative;
-      }
-      cumulative += expense;
-      schedule.push({
-        Posting_Date: formatDate(postingDate),
-        Expense: round2(expense),
-        Cumulative_Expense: round2(cumulative),
-        Remaining_Balance: round2(amount - cumulative)
-      });
+  const monthlyExpense = amount / serviceMonths;
+
+  postingDates.forEach((postingDate, index) => {
+    let expense = monthlyExpense;
+    if (index === serviceMonths - 1) {
+      expense = amount - cumulative;
     }
-  } else {
-    const postingDate = monthEnd(invoice);
-    cumulative = amount;
+    cumulative += expense;
     schedule.push({
       Posting_Date: formatDate(postingDate),
-      Expense: round2(amount),
-      Cumulative_Expense: round2(cumulative),
-      Remaining_Balance: 0
+      Expense: round2(expense),
+      Cumulative_Expense: round2(cumulative)
     });
+  });
+
+  const phaseStart = fundMonthEnd ? formatDate(fundMonthEnd) : "";
+  let prepaidPhaseRows = [];
+  let accrualPhaseRows = [];
+
+  if (fundMonthEnd && fundMonthEnd <= start) {
+    prepaidPhaseRows = schedule;
+  } else if (fundMonthEnd && fundMonthEnd > end) {
+    accrualPhaseRows = schedule;
+  } else if (fundMonthEnd) {
+    accrualPhaseRows = schedule.filter((row) => row.Posting_Date < phaseStart);
+    prepaidPhaseRows = schedule.filter((row) => row.Posting_Date >= phaseStart);
+  } else {
+    accrualPhaseRows = schedule;
   }
+
+  const totalPrepaid = prepaidPhaseRows.reduce((sum, row) => sum + row.Expense, 0);
+  const totalAccrued = accrualPhaseRows.reduce((sum, row) => sum + row.Expense, 0);
+  let prepaidSoFar = 0;
+  let accruedSoFar = 0;
+
+  schedule.forEach((row) => {
+    const isPrepaidRow = method !== "accrual" && phaseStart && row.Posting_Date >= phaseStart;
+    if (isPrepaidRow) {
+      prepaidSoFar += row.Expense;
+      row.Remaining_Balance = round2(totalPrepaid - prepaidSoFar);
+    } else {
+      accruedSoFar += row.Expense;
+      row.Remaining_Balance = round2(-accruedSoFar);
+    }
+  });
 
   const metrics = [
     ["Amount", `$${formatCurrency(amount)}`],
@@ -502,6 +528,11 @@ export const createExpenseCodingModel = ({
 
   if (method === "prepaid") {
     metrics.push(["Monthly Expense", `$${formatCurrency(amount / serviceMonths)}`]);
+  } else if (method === "accrual_prepaid") {
+    metrics.push(["Accrued Before Prepaid", `$${formatCurrency(totalAccrued)}`]);
+    metrics.push(["Prepaid After Payment", `$${formatCurrency(totalPrepaid)}`]);
+  } else if (method === "accrual") {
+    metrics.push(["Accrued Total", `$${formatCurrency(totalAccrued)}`]);
   } else {
     metrics.push(["Expense Month", formatDate(monthEnd(invoice))]);
   }
@@ -514,6 +545,9 @@ export const createExpenseCodingModel = ({
       amount,
       invoiceDate: formatDate(invoice),
       payDate: pay ? formatDate(pay) : "",
+      prepaidStartDate: fundDate ? formatDate(fundDate) : "",
+      accruedTotal: round2(totalAccrued),
+      prepaidTotal: round2(totalPrepaid),
       category: category || "General"
     }
   };
@@ -527,52 +561,15 @@ export const generateExpenseCodingJournals = (schedule, assumptions) => {
     amount,
     invoiceDate,
     payDate,
+    prepaidStartDate,
+    accruedTotal,
+    prepaidTotal,
     category
   } = assumptions;
 
   const expenseAccount = `Expense - ${category}`;
 
-  if (method === "prepaid") {
-    entries.push({
-      Date: invoiceDate,
-      JE_Type: "INVOICE",
-      Account_Description: "Prepaid Expenses",
-      Account_Number: 14010,
-      Debit: amount,
-      Credit: 0,
-      Memo: "Record prepaid invoice"
-    });
-    entries.push({
-      Date: invoiceDate,
-      JE_Type: "INVOICE",
-      Account_Description: "Accounts Payable",
-      Account_Number: 21100,
-      Debit: 0,
-      Credit: amount,
-      Memo: "Record vendor liability"
-    });
-
-    schedule.forEach((row) => {
-      entries.push({
-        Date: row.Posting_Date,
-        JE_Type: "AMORT",
-        Account_Description: expenseAccount,
-        Account_Number: 61000,
-        Debit: row.Expense,
-        Credit: 0,
-        Memo: "Monthly recognition"
-      });
-      entries.push({
-        Date: row.Posting_Date,
-        JE_Type: "AMORT",
-        Account_Description: "Prepaid Expenses",
-        Account_Number: 14010,
-        Debit: 0,
-        Credit: row.Expense,
-        Memo: "Reduce prepaid balance"
-      });
-    });
-  } else {
+  if (method === "expense") {
     entries.push({
       Date: invoiceDate,
       JE_Type: "INVOICE",
@@ -591,27 +588,135 @@ export const generateExpenseCodingJournals = (schedule, assumptions) => {
       Credit: amount,
       Memo: "Record vendor liability"
     });
-  }
 
-  if (payDate) {
-    entries.push({
-      Date: payDate,
-      JE_Type: "PAYMENT",
-      Account_Description: "Accounts Payable",
-      Account_Number: 21100,
-      Debit: amount,
-      Credit: 0,
-      Memo: "Clear AP on payment"
+    if (payDate) {
+      entries.push({
+        Date: payDate,
+        JE_Type: "PAYMENT",
+        Account_Description: "Accounts Payable",
+        Account_Number: 21100,
+        Debit: amount,
+        Credit: 0,
+        Memo: "Pay vendor"
+      });
+      entries.push({
+        Date: payDate,
+        JE_Type: "PAYMENT",
+        Account_Description: "Cash",
+        Account_Number: 10000,
+        Debit: 0,
+        Credit: amount,
+        Memo: "Cash settlement"
+      });
+    }
+  } else if (method === "prepaid" || method === "accrual_prepaid" || method === "accrual") {
+    const phaseStart = prepaidStartDate ? prepaidStartDate : invoiceDate;
+    schedule.forEach((row) => {
+      if (phaseStart && row.Posting_Date < phaseStart) {
+        entries.push({
+          Date: row.Posting_Date,
+          JE_Type: "ACCRUAL",
+          Account_Description: expenseAccount,
+          Account_Number: 61000,
+          Debit: row.Expense,
+          Credit: 0,
+          Memo: "Accrue expense"
+        });
+        entries.push({
+          Date: row.Posting_Date,
+          JE_Type: "ACCRUAL",
+          Account_Description: "Accrued Expenses",
+          Account_Number: 21500,
+          Debit: 0,
+          Credit: row.Expense,
+          Memo: "Accrued liability"
+        });
+      } else {
+        if (method === "prepaid" || method === "accrual_prepaid") {
+          entries.push({
+            Date: row.Posting_Date,
+            JE_Type: "AMORT",
+            Account_Description: expenseAccount,
+            Account_Number: 61000,
+            Debit: row.Expense,
+            Credit: 0,
+            Memo: "Monthly recognition"
+          });
+          entries.push({
+            Date: row.Posting_Date,
+            JE_Type: "AMORT",
+            Account_Description: "Prepaid Expenses",
+            Account_Number: 14010,
+            Debit: 0,
+            Credit: row.Expense,
+            Memo: "Reduce prepaid balance"
+          });
+        }
+      }
     });
-    entries.push({
-      Date: payDate,
-      JE_Type: "PAYMENT",
-      Account_Description: "Cash",
-      Account_Number: 10000,
-      Debit: 0,
-      Credit: amount,
-      Memo: "Cash settlement"
-    });
+
+    if (accruedTotal > 0) {
+      entries.push({
+        Date: invoiceDate,
+        JE_Type: "INVOICE",
+        Account_Description: "Accrued Expenses",
+        Account_Number: 21500,
+        Debit: accruedTotal,
+        Credit: 0,
+        Memo: "Reclass accrued to AP"
+      });
+      entries.push({
+        Date: invoiceDate,
+        JE_Type: "INVOICE",
+        Account_Description: "Accounts Payable",
+        Account_Number: 21100,
+        Debit: 0,
+        Credit: accruedTotal,
+        Memo: "Invoice received"
+      });
+    }
+
+    if (prepaidTotal > 0) {
+      entries.push({
+        Date: invoiceDate,
+        JE_Type: "INVOICE",
+        Account_Description: "Prepaid Expenses",
+        Account_Number: 14010,
+        Debit: prepaidTotal,
+        Credit: 0,
+        Memo: "Record prepaid for remaining service"
+      });
+      entries.push({
+        Date: invoiceDate,
+        JE_Type: "INVOICE",
+        Account_Description: "Accounts Payable",
+        Account_Number: 21100,
+        Debit: 0,
+        Credit: prepaidTotal,
+        Memo: "Invoice received"
+      });
+    }
+
+    if (payDate) {
+      entries.push({
+        Date: payDate,
+        JE_Type: "PAYMENT",
+        Account_Description: "Accounts Payable",
+        Account_Number: 21100,
+        Debit: amount,
+        Credit: 0,
+        Memo: "Pay vendor"
+      });
+      entries.push({
+        Date: payDate,
+        JE_Type: "PAYMENT",
+        Account_Description: "Cash",
+        Account_Number: 10000,
+        Debit: 0,
+        Credit: amount,
+        Memo: "Cash settlement"
+      });
+    }
   }
 
   return entries;

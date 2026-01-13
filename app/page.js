@@ -3,12 +3,15 @@ export default function HomePage() {
     <>
       <section className="hero">
         <p className="badge">Personal project by Chris Cedillo</p>
-        <h1 className="hero__title">Interactive accounting examples for students and professionals.</h1>
+        <h1 className="hero__title">Accounting Concepts in Action</h1>
         <p className="hero__lead">
-          A personal project meant to help college students and accounting professionals
+          I built this personal project to help college students and accounting professionals
           turn core concepts into interactive, real-world examples. Explore content licensing
           schedules, journal entry mappings, and policy judgment frameworks.
         </p>
+        <div className="card__note">
+          Work in progress: this guide is in early development and evolving with new modules and examples.
+        </div>
         <div className="badge-row">
           <span className="badge">Content Accounting</span>
           <span className="badge">Transfer Pricing</span>
@@ -46,6 +49,16 @@ export default function HomePage() {
           </p>
           <div className="card__note">
             Practice operational accounting with journals, schedules, and tie-outs.
+          </div>
+        </div>
+        <div className="card">
+          <h2 className="card__title">Module 4: Royalty Expense</h2>
+          <p className="card__subtitle">
+            Model device inventory royalties from units sold through accruals and
+            settlements, with period cutoff support.
+          </p>
+          <div className="card__note">
+            Work through royalty expense timing and payment flows.
           </div>
         </div>
       </section>

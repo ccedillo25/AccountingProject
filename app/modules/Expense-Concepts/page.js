@@ -24,19 +24,21 @@ const DEFAULT_EXPENSE = {
   serviceStart: "2026-01-01",
   serviceEnd: "2026-12-31",
   payDate: "2026-01-10",
-  category: "Software",
-  prepaidPolicy: "auto" // auto | force_prepaid | force_expense
+  category: "Software"
 };
 
 const DEFAULT_CASHAPP = {
   customer: "Acme Co",
   paymentAmount: 10000,
   paymentDate: "2026-01-08",
-  openInvoicesCsv: "INV-1001: 6000, INV-1002: 4000"
+  openInvoices: [
+    { id: "INV-1001", amount: 6000 },
+    { id: "INV-1002", amount: 4000 }
+  ]
 };
 
 const DEFAULT_PAYROLL = {
-  employeeName: "Jamie Carter",
+  employeeName: "Chris Cedillo",
   periodStart: "2026-01-01",
   periodEnd: "2026-01-15",
   payDate: "2026-01-20",
@@ -67,6 +69,11 @@ const formatJournalRows = (rows) =>
     formatScheduleCurrency(row.Credit),
     row.Memo ?? ""
   ]);
+
+const sortByDate = (rows) =>
+  [...rows].sort(
+    (a, b) => a.Date.localeCompare(b.Date) || a.JE_Type.localeCompare(b.JE_Type)
+  );
 
 const getNumberFormat = (header) => {
   const normalized = header.toLowerCase();
@@ -138,7 +145,6 @@ export default function AccountingOpsModulePage() {
   const [expServiceEnd, setExpServiceEnd] = useState(DEFAULT_EXPENSE.serviceEnd);
   const [expPayDate, setExpPayDate] = useState(DEFAULT_EXPENSE.payDate);
   const [expCategory, setExpCategory] = useState(DEFAULT_EXPENSE.category);
-  const [expPolicy, setExpPolicy] = useState(DEFAULT_EXPENSE.prepaidPolicy);
   const [expResult, setExpResult] = useState(null);
   const [expError, setExpError] = useState("");
 
@@ -150,7 +156,7 @@ export default function AccountingOpsModulePage() {
       serviceEnd: expServiceEnd,
       payDate: expPayDate,
       category: expCategory,
-      prepaidPolicy: expPolicy
+      prepaidPolicy: "auto"
     });
 
     if (result?.error) {
@@ -166,10 +172,10 @@ export default function AccountingOpsModulePage() {
   const expPreview = expSchedule.slice(0, 6);
   const expMetrics = expResult?.metrics ?? [];
   const expJournalsPreview = expPreview.length
-    ? generateExpenseCodingJournals(expPreview, expResult?.assumptions ?? {})
+    ? sortByDate(generateExpenseCodingJournals(expPreview, expResult?.assumptions ?? {}))
     : [];
   const expJournalsFull = expSchedule.length
-    ? generateExpenseCodingJournals(expSchedule, expResult?.assumptions ?? {})
+    ? sortByDate(generateExpenseCodingJournals(expSchedule, expResult?.assumptions ?? {}))
     : [];
 
   // -----------------------------
@@ -178,14 +184,32 @@ export default function AccountingOpsModulePage() {
   const [cashCustomer, setCashCustomer] = useState(DEFAULT_CASHAPP.customer);
   const [cashPaymentAmount, setCashPaymentAmount] = useState(DEFAULT_CASHAPP.paymentAmount);
   const [cashPaymentDate, setCashPaymentDate] = useState(DEFAULT_CASHAPP.paymentDate);
-  const [cashOpenInvoices, setCashOpenInvoices] = useState(DEFAULT_CASHAPP.openInvoicesCsv);
+  const [cashOpenInvoices, setCashOpenInvoices] = useState(DEFAULT_CASHAPP.openInvoices);
   const [cashResult, setCashResult] = useState(null);
   const [cashError, setCashError] = useState("");
 
+  const handleInvoiceChange = (index, field, value) => {
+    setCashOpenInvoices((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: field === "amount" ? Number(value) : value };
+      return next;
+    });
+  };
+
+  const handleAddInvoice = () => {
+    setCashOpenInvoices((prev) => [...prev, { id: "", amount: 0 }]);
+  };
+
+  const handleRemoveInvoice = (index) => {
+    setCashOpenInvoices((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
   const handleCashCalculate = () => {
-    const invoices = parseCsvAmountPairs(cashOpenInvoices);
+    const invoices = cashOpenInvoices
+      .filter((row) => row.id && Number(row.amount) > 0)
+      .map((row) => ({ label: row.id.trim(), amount: Number(row.amount) }));
     if (!invoices.length) {
-      setCashError("Enter at least one open invoice in the format: INV-1001: 6000, INV-1002: 4000");
+      setCashError("Enter at least one open invoice with an amount greater than zero.");
       setCashResult(null);
       return;
     }
@@ -378,7 +402,7 @@ export default function AccountingOpsModulePage() {
   const topicCopy = useMemo(() => {
     if (topic === "expense") {
       return {
-        badge: "Module 2A",
+        badge: "Module 3A",
         title: "Expense Coding",
         lead:
           "Decide prepaid vs expense, assign GL + cost center, and generate monthly recognition with clean journal entries."
@@ -386,7 +410,7 @@ export default function AccountingOpsModulePage() {
     }
     if (topic === "cashapp") {
       return {
-        badge: "Module 2B",
+        badge: "Module 3B",
         title: "Cash Application",
         lead:
           "Apply payments to open invoices, handle under/over-payments, and keep AR aging + cash postings accurate."
@@ -394,14 +418,14 @@ export default function AccountingOpsModulePage() {
     }
     if (topic === "payroll") {
       return {
-        badge: "Module 2C",
+        badge: "Module 3C",
         title: "Payroll Entries",
         lead:
           "Accrue payroll in the work period, split liabilities correctly, and book the cash settlement when paid."
       };
     }
     return {
-      badge: "Module 2C",
+      badge: "Module 3C",
       title: "Payroll Entries",
       lead:
         "Accrue payroll in the work period, split liabilities correctly, and book the cash settlement when paid."
@@ -465,6 +489,12 @@ export default function AccountingOpsModulePage() {
               The model decides whether to treat the cost as prepaid or period expense based on the service window,
               then generates the recognition schedule + JEs.
             </p>
+            <div className="card__note">
+              This model accrues expense while services are delivered and, once the invoice/payment
+              is funded, sets up a prepaid balance for the remaining service period. Some accounting
+              policies keep everything in accruals until the invoice is received; use policy judgment
+              for immaterial items or short-term services.
+            </div>
 
             <div className="controls">
               <div className="controls__row">
@@ -475,14 +505,6 @@ export default function AccountingOpsModulePage() {
                 <div>
                   <label htmlFor="exp-category">Category</label>
                   <input id="exp-category" type="text" value={expCategory} onChange={(e) => setExpCategory(e.target.value)} />
-                </div>
-                <div>
-                  <label htmlFor="exp-policy">Policy</label>
-                  <select id="exp-policy" value={expPolicy} onChange={(e) => setExpPolicy(e.target.value)}>
-                    <option value="auto">Auto (based on dates)</option>
-                    <option value="force_prepaid">Force Prepaid</option>
-                    <option value="force_expense">Force Expense</option>
-                  </select>
                 </div>
               </div>
 
@@ -592,11 +614,51 @@ export default function AccountingOpsModulePage() {
               </div>
 
               <div>
-                <label htmlFor="cash-inv">Open Invoices (CSV)</label>
-                <textarea id="cash-inv" value={cashOpenInvoices} onChange={(e) => setCashOpenInvoices(e.target.value)} />
-                <div className="card__note">
-                  Format: <strong>INV-1001: 6000, INV-1002: 4000</strong>
-                </div>
+                <label>Open Invoices</label>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Invoice ID</th>
+                      <th>Amount</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cashOpenInvoices.map((row, index) => (
+                      <tr key={`${row.id}-${index}`}>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.id}
+                            onChange={(e) => handleInvoiceChange(index, "id", e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={row.amount}
+                            onChange={(e) => handleInvoiceChange(index, "amount", e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => handleRemoveInvoice(index)}
+                            disabled={cashOpenInvoices.length <= 1}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button type="button" className="secondary" onClick={handleAddInvoice}>
+                  Add Invoice
+                </button>
               </div>
 
               <button type="button" onClick={handleCashCalculate}>

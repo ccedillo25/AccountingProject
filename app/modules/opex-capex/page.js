@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function OpexCapexPage() {
   return (
     <>
@@ -60,6 +62,21 @@ export default function OpexCapexPage() {
             <div className="decision-tree__title">Borderline</div>
             Apply materiality thresholds, document the rationale, and align with policy.
           </div>
+        </div>
+      </section>
+
+      <section className="card">
+        <h3 className="card__title">Scenario practice</h3>
+        <p className="card__subtitle">
+          Choose a real-life scenario to see how the decision framework applies.
+        </p>
+        <div className="tab-row">
+          <Link className="tab" href="/modules/opex-capex/opex-scenario">
+            Opex Scenario
+          </Link>
+          <Link className="tab" href="/modules/opex-capex/capex-scenario">
+            Capex Scenario
+          </Link>
         </div>
       </section>
 
