@@ -1,4 +1,5 @@
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next";
 import Sidebar from "./components/Sidebar";
 
 export const metadata = {
@@ -16,6 +17,7 @@ export default function RootLayout({ children }) {
             <div className="content__inner">{children}</div>
           </div>
         </main>
+        <Analytics />
       </body>
     </html>
   );
